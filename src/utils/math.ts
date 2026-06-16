@@ -58,3 +58,41 @@ export function generatePolynomialValues(
   }
   return values;
 }
+
+export interface DiffTableRow {
+  x: number;
+  values: number[];
+}
+
+export function computeDiffTableIndependent(
+  initialValues: number[],
+  order: number,
+  maxSteps: number
+): DiffTableRow[] {
+  const rows: DiffTableRow[] = [];
+
+  const firstRowValues: number[] = [];
+  let currentLevel = initialValues.slice(0, order + 1);
+  for (let k = 0; k <= order; k++) {
+    firstRowValues.push(currentLevel[0]);
+    if (k < order) {
+      const nextLevel: number[] = [];
+      for (let i = 0; i < currentLevel.length - 1; i++) {
+        nextLevel.push(currentLevel[i + 1] - currentLevel[i]);
+      }
+      currentLevel = nextLevel;
+    }
+  }
+  rows.push({ x: 0, values: firstRowValues });
+
+  const diffValues = firstRowValues.slice();
+
+  for (let step = 1; step <= maxSteps; step++) {
+    for (let k = 0; k < order; k++) {
+      diffValues[k] += diffValues[k + 1];
+    }
+    rows.push({ x: step, values: [...diffValues] });
+  }
+
+  return rows;
+}

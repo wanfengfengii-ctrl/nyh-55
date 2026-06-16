@@ -28,6 +28,7 @@ export default function ControlPanel() {
   const isInitialized = useEngineStore((s) => s.isInitialized);
   const isRunning = useEngineStore((s) => s.isRunning);
   const engineState = useEngineStore((s) => s.engineState);
+  const displayPhase = useEngineStore((s) => s.displayPhase);
 
   const [inputValues, setInputValues] = useState('0, 1, 4');
   const [inputOrder, setInputOrder] = useState(2);
@@ -230,7 +231,7 @@ export default function ControlPanel() {
               <Stack gap={4}>
                 <Group justify="space-between">
                   <Text size="xs" style={{ color: '#8B8682' }}>当前状态</Text>
-                  <PhaseBadge phase={engineState.phase} />
+                  <PhaseBadge phase={displayPhase} />
                 </Group>
                 <Group justify="space-between">
                   <Text size="xs" style={{ color: '#8B8682' }}>手柄转数</Text>

@@ -1,19 +1,14 @@
 import { Paper, Table, Text, Group, Badge, ScrollArea } from '@mantine/core';
 import { useEngineStore } from '@/store/engineStore';
-
-interface DiffTableRow {
-  x: number;
-  values: number[];
-  isLatest: boolean;
-  hasError: boolean;
-  isInitial: boolean;
-}
+import { computeDiffTableIndependent } from '@/utils/math';
 
 export default function DiffTable() {
   const engineState = useEngineStore((s) => s.engineState);
+  const config = useEngineStore((s) => s.config);
   const operationLog = useEngineStore((s) => s.operationLog);
+  const isInitialized = useEngineStore((s) => s.isInitialized);
 
-  if (!engineState) {
+  if (!isInitialized || !engineState) {
     return (
       <Paper
         shadow="sm"
@@ -25,7 +20,7 @@ export default function DiffTable() {
         }}
       >
         <Text size="sm" fw={700} style={{ color: '#C8A951', fontFamily: 'Playfair Display, serif', marginBottom: 8 }}>
-          差分表格
+          差分表格（独立验算）
         </Text>
         <Text size="xs" style={{ color: '#8B8682', textAlign: 'center', padding: 16 }}>
           请先初始化差分机
@@ -34,37 +29,41 @@ export default function DiffTable() {
     );
   }
 
-  const columns = engineState.columns;
-  const headerRow = columns.map((col) => {
+  const independentTable = computeDiffTableIndependent(
+    config.initialValues,
+    config.order,
+    config.maxCrankTurns
+  );
+
+  const headerRow = engineState.columns.map((col) => {
     if (col.order === 0) return 'f(x)';
     return `Δ${toSuperscript(col.order)}`;
   });
 
-  const rows: DiffTableRow[] = [];
+  const engineRows: Map<number, number[]> = new Map();
 
-  const initialRow = operationLog.length > 0
-    ? operationLog[0].previousValues
-    : columns.map((c) => c.value);
-  rows.push({
-    x: 0,
-    values: initialRow,
-    isLatest: operationLog.length === 0,
-    hasError: false,
-    isInitial: true,
-  });
+  if (operationLog.length > 0) {
+    engineRows.set(0, operationLog[0].previousValues);
+  } else if (engineState) {
+    engineRows.set(0, engineState.columns.map((c) => c.value));
+  }
 
   for (let i = 0; i < operationLog.length; i++) {
     const step = operationLog[i];
     if (step.phase === 'add' && step.newValues.length > 0) {
-      rows.push({
-        x: step.crankTurn,
-        values: step.newValues,
-        isLatest: i === operationLog.length - 1,
-        hasError: step.errorOccurred,
-        isInitial: false,
-      });
+      engineRows.set(step.crankTurn, step.newValues);
     }
   }
+
+  const allConsistent = (() => {
+    for (let x = 0; x <= engineState.currentStep; x++) {
+      const engineVal = engineRows.get(x);
+      const indepVal = independentTable[x]?.values;
+      if (!engineVal || !indepVal) continue;
+      if (engineVal[0] !== indepVal[0]) return false;
+    }
+    return true;
+  })();
 
   return (
     <Paper
@@ -76,18 +75,32 @@ export default function DiffTable() {
         border: '1px solid #4A3728',
       }}
     >
-      <Text size="sm" fw={700} style={{ color: '#C8A951', fontFamily: 'Playfair Display, serif', marginBottom: 8 }}>
-        差分表格
-      </Text>
+      <Group justify="space-between" style={{ marginBottom: 8 }}>
+        <Text size="sm" fw={700} style={{ color: '#C8A951', fontFamily: 'Playfair Display, serif' }}>
+          差分表格（独立验算）
+        </Text>
+        {engineState.currentStep > 0 && (
+          <Badge
+            size="xs"
+            variant="filled"
+            style={{
+              background: allConsistent ? '#2E8B57' : '#C0392B',
+              color: '#F5F0E1',
+            }}
+          >
+            {allConsistent ? '✓ 结果一致' : '✗ 结果不一致'}
+          </Badge>
+        )}
+      </Group>
 
-      <ScrollArea>
+      <ScrollArea style={{ maxHeight: 320 }}>
         <Table
           striped
           highlightOnHover
           styles={{
             table: { color: '#F5F0E1', minWidth: 400 },
-            th: { color: '#C8A951', borderBottomColor: '#4A3728', fontFamily: 'Playfair Display, serif', whiteSpace: 'nowrap' },
-            td: { borderBottomColor: '#333350', fontFamily: 'Source Sans 3, sans-serif', fontSize: 13, whiteSpace: 'nowrap' },
+            th: { color: '#C8A951', borderBottomColor: '#4A3728', fontFamily: 'Playfair Display, serif', whiteSpace: 'nowrap', fontSize: 12 },
+            td: { borderBottomColor: '#333350', fontFamily: 'Source Sans 3, sans-serif', fontSize: 12, whiteSpace: 'nowrap', padding: '6px 8px' },
             tr: { background: 'transparent' },
           }}
         >
@@ -100,45 +113,96 @@ export default function DiffTable() {
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {rows.map((row, idx) => (
-              <Table.Tr
-                key={idx}
-                style={{
-                  background: row.hasError
-                    ? 'rgba(192,57,43,0.15)'
-                    : row.isLatest
-                      ? 'rgba(200,169,81,0.1)'
-                      : 'transparent',
-                }}
-              >
-                <Table.Td>
-                  <Group gap={4}>
-                    <Text size="xs" style={{ color: row.isLatest ? '#C8A951' : '#8B8682', fontWeight: row.isLatest ? 'bold' : 'normal' }}>
-                      {row.x}
-                    </Text>
-                    {row.isLatest && !row.isInitial && <Badge size="xs" color="#C8A951" variant="outline">当前</Badge>}
-                    {row.isInitial && <Badge size="xs" color="#2E8B57" variant="outline">初始</Badge>}
-                    {row.hasError && <Badge size="xs" color="#C0392B" variant="filled">错误</Badge>}
-                  </Group>
-                </Table.Td>
-                {row.values.map((v, i) => (
-                  <Table.Td key={i} style={{ textAlign: 'center' }}>
-                    <Text
-                      size="sm"
-                      style={{
-                        color: row.hasError ? '#C0392B' : i === 0 ? '#2E8B57' : '#F5F0E1',
-                        fontWeight: row.isLatest ? 'bold' : 'normal',
-                      }}
-                    >
-                      {v}
-                    </Text>
+            {independentTable.map((row, idx) => {
+              const x = row.x;
+              const engineValues = engineRows.get(x);
+              const isCurrentStep = x === engineState.currentStep && x > 0;
+              const isInitial = x === 0;
+              const hasEngineData = engineValues !== undefined;
+              const isPastStep = x <= engineState.currentStep;
+
+              const isErrorStep = (() => {
+                if (!hasEngineData) return false;
+                for (let i = 0; i < Math.min(engineValues.length, row.values.length); i++) {
+                  if (engineValues[i] !== row.values[i]) return true;
+                }
+                return false;
+              })();
+
+              return (
+                <Table.Tr
+                  key={idx}
+                  style={{
+                    background: isErrorStep
+                      ? 'rgba(192,57,43,0.2)'
+                      : isCurrentStep
+                        ? 'rgba(200,169,81,0.15)'
+                        : isPastStep
+                          ? 'rgba(46,139,87,0.05)'
+                          : 'transparent',
+                  }}
+                >
+                  <Table.Td>
+                    <Group gap={4}>
+                      <Text
+                        size="xs"
+                        style={{
+                          color: isCurrentStep ? '#C8A951' : isPastStep ? '#F5F0E1' : '#8B8682',
+                          fontWeight: isCurrentStep ? 'bold' : 'normal',
+                        }}
+                      >
+                        {x}
+                      </Text>
+                      {isCurrentStep && <Badge size="xs" color="#C8A951" variant="outline">当前</Badge>}
+                      {isInitial && <Badge size="xs" color="#2E8B57" variant="outline">初始</Badge>}
+                      {!isPastStep && <Badge size="xs" color="#8B8682" variant="outline">预期</Badge>}
+                    </Group>
                   </Table.Td>
-                ))}
-              </Table.Tr>
-            ))}
+                  {row.values.map((expectedVal, i) => {
+                    const engineVal = engineValues?.[i];
+                    const hasMismatch = hasEngineData && engineVal !== expectedVal;
+                    const isFirstCol = i === 0;
+
+                    return (
+                      <Table.Td key={i} style={{ textAlign: 'center' }}>
+                        <Text
+                          size="xs"
+                          style={{
+                            color: hasMismatch
+                              ? '#C0392B'
+                              : isFirstCol
+                                ? '#2E8B57'
+                                : isPastStep
+                                  ? '#F5F0E1'
+                                  : '#8B8682',
+                            fontWeight: isCurrentStep ? 'bold' : 'normal',
+                            textDecoration: hasMismatch ? 'line-through' : 'none',
+                          }}
+                        >
+                          {hasEngineData && hasMismatch ? (
+                            <>
+                              <span style={{ color: '#C0392B' }}>{engineVal}</span>
+                              <span style={{ color: '#2E8B57', fontSize: 10, marginLeft: 4 }}>
+                                (应为 {expectedVal})
+                              </span>
+                            </>
+                          ) : (
+                            expectedVal
+                          )}
+                        </Text>
+                      </Table.Td>
+                    );
+                  })}
+                </Table.Tr>
+              );
+            })}
           </Table.Tbody>
         </Table>
       </ScrollArea>
+
+      <Text size="xs" style={{ color: '#8B8682', marginTop: 8, fontStyle: 'italic' }}>
+        绿色数字为独立验算结果，与引擎结果对比以验证正确性
+      </Text>
     </Paper>
   );
 }

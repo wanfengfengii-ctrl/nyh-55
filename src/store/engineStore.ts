@@ -17,6 +17,7 @@ interface EngineStore {
   historyStack: EngineState[];
   isInitialized: boolean;
   isRunning: boolean;
+  displayPhase: EngineState['phase'];
 
   initialize: (config?: Partial<EngineConfig>) => void;
   stepForward: () => void;
@@ -28,6 +29,7 @@ interface EngineStore {
   startContinuous: () => void;
   stopContinuous: () => void;
   continuousTick: () => void;
+  setDisplayPhase: (p: EngineState['phase']) => void;
 }
 
 export const useEngineStore = create<EngineStore>((set, get) => ({
@@ -39,6 +41,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
   historyStack: [],
   isInitialized: false,
   isRunning: false,
+  displayPhase: 'idle',
 
   initialize: (configOverride) => {
     const cfg = { ...get().config, ...configOverride };
@@ -53,6 +56,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         isAnimating: false,
         animationDetail: null,
         isRunning: false,
+        displayPhase: 'idle',
       });
     } catch (e) {
       console.error('初始化差分机失败:', e);
@@ -67,13 +71,24 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     const snapshot = deepCloneState(engineState);
     const result = executeStep(engineState, engineState.currentStep);
 
+    const hasCarry = result.animation.carryTriggers.length > 0;
+
     set((s) => ({
       engineState: result.newState,
       operationLog: [...s.operationLog, result.log],
       historyStack: [...s.historyStack, snapshot],
       animationDetail: result.animation,
       isAnimating: true,
+      displayPhase: 'adding',
     }));
+
+    if (hasCarry) {
+      setTimeout(() => {
+      if (get().isAnimating) {
+        set({ displayPhase: 'carrying' });
+      }
+      }, 500);
+    }
 
     if (result.error && isRunning) {
       set({ isRunning: false });
@@ -91,6 +106,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
       operationLog: s.operationLog.slice(0, -1),
       animationDetail: null,
       isAnimating: false,
+      displayPhase: prevState.phase,
     }));
   },
 
@@ -103,6 +119,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
       isAnimating: false,
       animationDetail: null,
       isRunning: false,
+      displayPhase: 'idle',
     });
   },
 
@@ -110,6 +127,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     set({ isAnimating: v });
     if (!v) {
       const { isRunning, engineState } = get();
+      set({ displayPhase: engineState?.phase ?? 'idle' });
       if (isRunning && engineState) {
         if (engineState.phase === 'error' || engineState.phase === 'complete') {
           set({ isRunning: false });
@@ -118,6 +136,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     }
   },
   setAnimationDetail: (d) => set({ animationDetail: d }),
+  setDisplayPhase: (p) => set({ displayPhase: p }),
 
   updateConfig: (partial) => {
     set((s) => ({ config: { ...s.config, ...partial } }));

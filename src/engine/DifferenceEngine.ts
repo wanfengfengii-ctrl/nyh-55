@@ -236,7 +236,13 @@ export function executeStep(
         message: `第${k - 1}阶差分列数值溢出: ${originalValue} + ${addend} 超出 ${state.numDigits} 位数字轮范围`,
       };
       toCol.isError = true;
-      toCol.wheels[state.numDigits - 1].isError = true;
+      for (let w = 0; w < state.numDigits; w++) {
+        toCol.wheels[w].isError = true;
+      }
+      for (let w = 0; w < toCol.carryLevers.length; w++) {
+        toCol.carryLevers[w].engaged = true;
+        toCol.carryLevers[w].progress = 1;
+      }
     }
 
     if (newValue < 0) {
@@ -247,7 +253,9 @@ export function executeStep(
         message: `第${k - 1}阶差分列出现负数值: ${newValue}`,
       };
       toCol.isError = true;
-      toCol.wheels[0].isError = true;
+      for (let w = 0; w < state.numDigits; w++) {
+        toCol.wheels[w].isError = true;
+      }
     }
 
     if (stepError) break;
