@@ -30,6 +30,7 @@ interface EngineStore {
   stopContinuous: () => void;
   continuousTick: () => void;
   setDisplayPhase: (p: EngineState['phase']) => void;
+  setIsRunning: (v: boolean) => void;
 }
 
 export const useEngineStore = create<EngineStore>((set, get) => ({
@@ -137,6 +138,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
   },
   setAnimationDetail: (d) => set({ animationDetail: d }),
   setDisplayPhase: (p) => set({ displayPhase: p }),
+
+  setIsRunning: (v) => set({ isRunning: v }),
 
   updateConfig: (partial) => {
     set((s) => ({ config: { ...s.config, ...partial } }));
