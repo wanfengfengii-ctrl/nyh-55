@@ -4,7 +4,8 @@ import type {
   ComputationStep,
   EngineConfig,
 } from '@/types';
-import { createEngineState } from '@/engine/DifferenceEngine';
+import { createEngineState, deepCloneState } from '@/engine/DifferenceEngine';
+import { numberToDigits } from '@/utils/math';
 import { useEngineStore } from '@/store/engineStore';
 
 export interface ValidateResult {
@@ -206,18 +207,18 @@ export function executeCard(
   config: EngineConfig,
   initializeEngine: (config: Partial<EngineConfig>) => void,
   stepForward: () => void,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _stepBack: () => void
+  _stepBack: () => void,
+  setEngineState: (state: EngineState) => void
 ): ExecuteResult {
   switch (card.type) {
     case 'initial':
       return executeInitialCard(card, engineState, initializeEngine);
     case 'step':
-      return executeStepCard(card, engineState, stepForward);
+      return executeStepCard(card, engineState, stepForward, setEngineState);
     case 'stop':
       return executeStopCard(card, engineState, operationLog, config);
     case 'error_handler':
-      return executeErrorHandlerCard(card, engineState, operationLog);
+      return executeErrorHandlerCard(card, engineState, setEngineState);
     default:
       return {
         success: false,
@@ -294,10 +295,35 @@ function executeInitialCard(
   }
 }
 
+function applyColumnValueChange(
+  engineState: EngineState,
+  targetColumn: number,
+  newValue: number,
+  numDigits: number
+): EngineState {
+  const newColumns = engineState.columns.map((col, idx) => {
+    if (idx !== targetColumn) return col;
+    const newDigits = numberToDigits(newValue, numDigits);
+    return {
+      ...col,
+      value: newValue,
+      wheels: col.wheels.map((w, wi) => ({
+        ...w,
+        digit: newDigits[wi],
+        prevDigit: w.digit,
+        isError: false,
+      })),
+      isError: false,
+    };
+  });
+  return { ...engineState, columns: newColumns };
+}
+
 function executeStepCard(
   card: ProgramCard,
   engineState: EngineState | null,
-  stepForward: () => void
+  stepForward: () => void,
+  setEngineState: (state: EngineState) => void
 ): ExecuteResult {
   const config = card.config.step;
   if (!config) {
@@ -340,9 +366,106 @@ function executeStepCard(
     };
   }
 
-  const repeatCount = Math.min(config.repeatCount, engineState.maxSteps - engineState.crankTurns);
-  
-  if (repeatCount <= 0) {
+  const ruleType = config.ruleType;
+  const value = config.value;
+  const targetColumn = config.targetColumn ?? 0;
+  let actualSteps = 0;
+  let ruleDescription = '';
+
+  switch (ruleType) {
+    case 'add': {
+      actualSteps = Math.min(config.repeatCount, engineState.maxSteps - engineState.crankTurns);
+      ruleDescription = `加法步进: 执行${actualSteps}步`;
+      break;
+    }
+
+    case 'multiply': {
+      const totalSteps = Math.max(1, Math.round(Math.abs(value))) * config.repeatCount;
+      actualSteps = Math.min(totalSteps, engineState.maxSteps - engineState.crankTurns);
+      ruleDescription = `乘法步进: 倍数=${value}, 重复=${config.repeatCount}, 实际执行${actualSteps}步`;
+      break;
+    }
+
+    case 'set': {
+      if (targetColumn < 0 || targetColumn >= engineState.columns.length) {
+        return {
+          success: false,
+          error: `目标列索引 ${targetColumn} 超出范围`,
+          shouldStop: true,
+          shouldContinue: false,
+          description: `执行失败: 目标列索引超出范围`,
+        };
+      }
+      const modulus = Math.pow(10, engineState.numDigits);
+      if (value < 0 || value >= modulus) {
+        return {
+          success: false,
+          error: `设置值 ${value} 超出范围 [0, ${modulus})`,
+          shouldStop: true,
+          shouldContinue: false,
+          description: `执行失败: 设置值超出范围`,
+        };
+      }
+
+      const modifiedState = applyColumnValueChange(
+        deepCloneState(engineState),
+        targetColumn,
+        value,
+        engineState.numDigits
+      );
+      setEngineState(modifiedState);
+      useEngineStore.setState({ engineState: modifiedState });
+
+      actualSteps = Math.min(config.repeatCount, engineState.maxSteps - engineState.crankTurns);
+      ruleDescription = `设置步进: 第${targetColumn}列设为${value}, 然后执行${actualSteps}步`;
+      break;
+    }
+
+    case 'custom': {
+      if (targetColumn < 0 || targetColumn >= engineState.columns.length) {
+        return {
+          success: false,
+          error: `目标列索引 ${targetColumn} 超出范围`,
+          shouldStop: true,
+          shouldContinue: false,
+          description: `执行失败: 目标列索引超出范围`,
+        };
+      }
+      const currentVal = engineState.columns[targetColumn].value;
+      const modulus = Math.pow(10, engineState.numDigits);
+      const newVal = currentVal + value;
+
+      if (newVal < 0 || newVal >= modulus) {
+        return {
+          success: false,
+          error: `自定义运算后值 ${newVal} 超出范围 [0, ${modulus})`,
+          shouldStop: true,
+          shouldContinue: false,
+          description: `执行失败: 自定义运算后值超出范围`,
+        };
+      }
+
+      const modifiedState = applyColumnValueChange(
+        deepCloneState(engineState),
+        targetColumn,
+        newVal,
+        engineState.numDigits
+      );
+      setEngineState(modifiedState);
+      useEngineStore.setState({ engineState: modifiedState });
+
+      actualSteps = Math.min(config.repeatCount, engineState.maxSteps - engineState.crankTurns);
+      ruleDescription = `自定义步进: 第${targetColumn}列 ${currentVal}+${value}=${newVal}, 然后执行${actualSteps}步`;
+      break;
+    }
+
+    default: {
+      actualSteps = Math.min(config.repeatCount, engineState.maxSteps - engineState.crankTurns);
+      ruleDescription = `默认步进: 执行${actualSteps}步`;
+    }
+  }
+
+  if (actualSteps <= 0) {
     return {
       success: false,
       error: '已达到最大转动次数',
@@ -352,12 +475,16 @@ function executeStepCard(
     };
   }
 
-  for (let i = 0; i < repeatCount; i++) {
+  for (let i = 0; i < actualSteps; i++) {
+    const currentEngineState = useEngineStore.getState().engineState;
+    if (!currentEngineState || currentEngineState.phase === 'error' || currentEngineState.phase === 'complete') {
+      break;
+    }
     stepForward();
   }
 
   const currentState = useEngineStore.getState().engineState;
-  
+
   if (currentState?.phase === 'error') {
     return {
       success: false,
@@ -374,7 +501,7 @@ function executeStepCard(
     shouldStop: false,
     shouldContinue: true,
     newEngineState: currentState || undefined,
-    description: `步进执行成功: 规则=${config.ruleType}, 值=${config.value}, 执行次数=${repeatCount}, 当前f(x)=${currentState?.columns[0]?.value ?? '-'}`,
+    description: `${ruleDescription}, 当前f(x)=${currentState?.columns[0]?.value ?? '-'}`,
   };
 }
 
@@ -465,8 +592,7 @@ function executeStopCard(
 function executeErrorHandlerCard(
   card: ProgramCard,
   engineState: EngineState | null,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _operationLog: ComputationStep[]
+  setEngineState: (state: EngineState) => void
 ): ExecuteResult {
   const handlerConfig = card.config.errorHandler;
   if (!handlerConfig) {
@@ -489,7 +615,7 @@ function executeErrorHandlerCard(
   }
 
   const hasError = engineState.phase === 'error';
-  
+
   if (!hasError) {
     return {
       success: true,
@@ -501,6 +627,7 @@ function executeErrorHandlerCard(
   }
 
   const errorMsg = engineState.error?.message || '未知错误';
+  const errorColumn = engineState.error?.column ?? 0;
 
   switch (handlerConfig.strategy) {
     case 'stop_immediately':
@@ -513,49 +640,89 @@ function executeErrorHandlerCard(
         description: `异常处理: 检测到错误，已立即停止 - ${errorMsg}`,
       };
 
-    case 'skip_and_continue':
+    case 'skip_and_continue': {
+      const fixedState: EngineState = {
+        ...deepCloneState(engineState),
+        phase: 'idle',
+        error: null,
+        columns: engineState.columns.map((col) => ({
+          ...col,
+          isError: false,
+          wheels: col.wheels.map((w) => ({ ...w, isError: false })),
+          carryLevers: col.carryLevers.map((l) => ({ ...l, engaged: false })),
+        })),
+      };
+      setEngineState(fixedState);
+      useEngineStore.setState({ engineState: fixedState });
       return {
         success: true,
         shouldStop: false,
         shouldContinue: true,
-        newEngineState: { ...engineState, phase: 'idle', error: null },
+        newEngineState: fixedState,
         description: `异常处理: 跳过错误继续执行 - ${errorMsg}`,
       };
+    }
 
-    case 'retry_once':
+    case 'retry_once': {
+      const retryState: EngineState = {
+        ...deepCloneState(engineState),
+        phase: 'idle',
+        error: null,
+        columns: engineState.columns.map((col) => ({
+          ...col,
+          isError: false,
+          wheels: col.wheels.map((w) => ({ ...w, isError: false })),
+          carryLevers: col.carryLevers.map((l) => ({ ...l, engaged: false })),
+        })),
+      };
+      setEngineState(retryState);
+      useEngineStore.setState({ engineState: retryState });
       return {
         success: true,
         shouldStop: false,
         shouldContinue: true,
-        newEngineState: { ...engineState, phase: 'idle', error: null },
+        newEngineState: retryState,
         description: `异常处理: 将重试一次 - ${errorMsg}`,
       };
+    }
 
     case 'use_fallback': {
       const fallback = handlerConfig.fallbackValue ?? 0;
-      const newColumns = engineState.columns.map((col, idx) => {
-        if (idx === 0 && engineState.error?.column === 0) {
+      const fixedState: EngineState = {
+        ...deepCloneState(engineState),
+        phase: 'idle',
+        error: null,
+        columns: engineState.columns.map((col, idx) => {
+          if (idx === errorColumn) {
+            const newDigits = numberToDigits(fallback, engineState.numDigits);
+            return {
+              ...col,
+              value: fallback,
+              isError: false,
+              wheels: col.wheels.map((w, wi) => ({
+                ...w,
+                digit: newDigits[wi],
+                isError: false,
+              })),
+              carryLevers: col.carryLevers.map((l) => ({ ...l, engaged: false })),
+            };
+          }
           return {
             ...col,
-            value: fallback,
             isError: false,
             wheels: col.wheels.map((w) => ({ ...w, isError: false })),
+            carryLevers: col.carryLevers.map((l) => ({ ...l, engaged: false })),
           };
-        }
-        return { ...col, isError: false, wheels: col.wheels.map((w) => ({ ...w, isError: false })) };
-      });
-
+        }),
+      };
+      setEngineState(fixedState);
+      useEngineStore.setState({ engineState: fixedState });
       return {
         success: true,
         shouldStop: false,
         shouldContinue: true,
-        newEngineState: {
-          ...engineState,
-          columns: newColumns,
-          phase: 'idle',
-          error: null,
-        },
-        description: `异常处理: 使用回退值 ${fallback} - ${errorMsg}`,
+        newEngineState: fixedState,
+        description: `异常处理: 使用回退值 ${fallback} 替代第${errorColumn}列 - ${errorMsg}`,
       };
     }
 

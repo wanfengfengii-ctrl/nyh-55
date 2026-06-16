@@ -19,6 +19,7 @@ import { useEngineStore } from '@/store/engineStore';
 import type {
   ProgramCard,
   CardType,
+  EngineState,
 } from '@/types';
 import {
   DEFAULT_INITIAL_CARD,
@@ -86,6 +87,7 @@ export default function CardProgramPanel() {
     }
 
     executionIntervalRef.current = window.setInterval(() => {
+      const engineStore = useEngineStore.getState();
       const result = executeCardStep(
         () => useEngineStore.getState().engineState,
         () => useEngineStore.getState().operationLog,
@@ -93,7 +95,19 @@ export default function CardProgramPanel() {
         () => stepForward(),
         () => stepBack(),
         () => useEngineStore.getState().config,
-        (v) => setIsRunning(v)
+        (v) => setIsRunning(v),
+        (state) => useEngineStore.setState({ engineState: state }),
+        () => ({
+          engineState: JSON.parse(JSON.stringify(engineStore.engineState)),
+          operationLog: [...engineStore.operationLog],
+          historyStack: engineStore.historyStack.map((s: EngineState) => JSON.parse(JSON.stringify(s)) as EngineState),
+          isInitialized: engineStore.isInitialized,
+          isAnimating: engineStore.isAnimating,
+          animationDetail: engineStore.animationDetail ? { ...engineStore.animationDetail } : null,
+          isRunning: engineStore.isRunning,
+          displayPhase: engineStore.displayPhase,
+          config: { ...engineStore.config },
+        })
       );
 
       if (result.shouldStop || !result.shouldContinue) {
@@ -146,6 +160,7 @@ export default function CardProgramPanel() {
     }
 
     setTimeout(() => {
+      const engineStore = useEngineStore.getState();
       executeCardStep(
         () => useEngineStore.getState().engineState,
         () => useEngineStore.getState().operationLog,
@@ -153,7 +168,19 @@ export default function CardProgramPanel() {
         () => stepForward(),
         () => stepBack(),
         () => useEngineStore.getState().config,
-        (v) => setIsRunning(v)
+        (v) => setIsRunning(v),
+        (state) => useEngineStore.setState({ engineState: state }),
+        () => ({
+          engineState: JSON.parse(JSON.stringify(engineStore.engineState)),
+          operationLog: [...engineStore.operationLog],
+          historyStack: engineStore.historyStack.map((s: EngineState) => JSON.parse(JSON.stringify(s)) as EngineState),
+          isInitialized: engineStore.isInitialized,
+          isAnimating: engineStore.isAnimating,
+          animationDetail: engineStore.animationDetail ? { ...engineStore.animationDetail } : null,
+          isRunning: engineStore.isRunning,
+          displayPhase: engineStore.displayPhase,
+          config: { ...engineStore.config },
+        })
       );
     }, 100);
   };
@@ -166,10 +193,18 @@ export default function CardProgramPanel() {
   const handleStepBack = () => {
     if (isAnimating || isProgramRunning) return;
     const history = stepBackCard();
-    if (history) {
+    if (history && history.engineSnapshot) {
+      const snap = history.engineSnapshot;
       useEngineStore.setState({
-        engineState: history.engineState,
-        operationLog: history.operationLog,
+        engineState: snap.engineState,
+        operationLog: snap.operationLog,
+        historyStack: snap.historyStack,
+        isInitialized: snap.isInitialized,
+        isAnimating: snap.isAnimating,
+        animationDetail: snap.animationDetail,
+        isRunning: snap.isRunning,
+        displayPhase: snap.displayPhase,
+        config: snap.config,
       });
     }
   };

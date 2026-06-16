@@ -6,6 +6,7 @@ import type {
   EngineState,
   ComputationStep,
   EngineConfig,
+  EngineStoreSnapshot,
 } from '@/types';
 import {
   DEFAULT_INITIAL_CARD,
@@ -30,13 +31,13 @@ interface CardProgramStore extends CardProgramState {
   stopProgram: () => void;
   executeSingleCard: () => void;
   executeAllCards: () => void;
-  stepBackCard: () => { cardIndex: number; engineState: EngineState; operationLog: ComputationStep[] } | null;
+  stepBackCard: () => { cardIndex: number; engineSnapshot: EngineStoreSnapshot } | null;
   resetProgram: () => void;
   setProgramError: (error: string | null) => void;
   addExecutionRecord: (record: CardExecutionRecord) => void;
   clearExecutionRecords: () => void;
-  saveExecutionHistory: (cardIndex: number, engineState: EngineState, operationLog: ComputationStep[]) => void;
-  popExecutionHistory: () => { cardIndex: number; engineState: EngineState; operationLog: ComputationStep[] } | null;
+  saveExecutionHistory: (cardIndex: number, engineSnapshot: EngineStoreSnapshot) => void;
+  popExecutionHistory: () => { cardIndex: number; engineSnapshot: EngineStoreSnapshot } | null;
   executeCardStep: (
     getEngineState: () => EngineState | null,
     getOperationLog: () => ComputationStep[],
@@ -44,7 +45,9 @@ interface CardProgramStore extends CardProgramState {
     stepForward: () => void,
     stepBack: () => void,
     getConfig: () => EngineConfig,
-    setIsRunning: (v: boolean) => void
+    setIsRunning: (v: boolean) => void,
+    setEngineState: (state: EngineState) => void,
+    getEngineStoreSnapshot: () => EngineStoreSnapshot
   ) => { shouldStop: boolean; shouldContinue: boolean };
   verifyConsistency: (
     engineState: EngineState,
@@ -207,8 +210,8 @@ export const useCardProgramStore = create<CardProgramStore>((set, get) => ({
 
   clearExecutionRecords: () => set({ executionRecords: [] }),
 
-  saveExecutionHistory: (cardIndex, engineState, operationLog) => set((s) => ({
-    executionHistory: [...s.executionHistory, { cardIndex, engineState, operationLog }],
+  saveExecutionHistory: (cardIndex, engineSnapshot) => set((s) => ({
+    executionHistory: [...s.executionHistory, { cardIndex, engineSnapshot }],
   })),
 
   popExecutionHistory: () => {
@@ -226,7 +229,9 @@ export const useCardProgramStore = create<CardProgramStore>((set, get) => ({
     stepForward,
     stepBack,
     getConfig,
-    setIsRunning
+    setIsRunning,
+    setEngineState,
+    getEngineStoreSnapshot
   ) => {
     const {
       cards,
@@ -292,6 +297,9 @@ export const useCardProgramStore = create<CardProgramStore>((set, get) => ({
       return { shouldStop: true, shouldContinue: false };
     }
 
+    const snapshot = getEngineStoreSnapshot();
+    saveExecutionHistory(currentCardIndex, snapshot);
+
     const execResult = executeCard(
       currentCard,
       engineState,
@@ -299,14 +307,11 @@ export const useCardProgramStore = create<CardProgramStore>((set, get) => ({
       getConfig(),
       initializeEngine,
       stepForward,
-      stepBack
+      stepBack,
+      setEngineState
     );
 
     const endTime = Date.now();
-
-    if (engineState) {
-      saveExecutionHistory(currentCardIndex, JSON.parse(JSON.stringify(engineState)), [...getOperationLog()]);
-    }
 
     addExecutionRecord({
       cardId: currentCard.id,

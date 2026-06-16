@@ -153,7 +153,19 @@ export interface CardProgramState {
   isProgramRunning: boolean;
   isProgramPaused: boolean;
   programError: string | null;
-  executionHistory: { cardIndex: number; engineState: EngineState; operationLog: ComputationStep[] }[];
+  executionHistory: { cardIndex: number; engineSnapshot: EngineStoreSnapshot }[];
+}
+
+export interface EngineStoreSnapshot {
+  engineState: EngineState | null;
+  operationLog: ComputationStep[];
+  historyStack: EngineState[];
+  isInitialized: boolean;
+  isAnimating: boolean;
+  animationDetail: AnimationDetail | null;
+  isRunning: boolean;
+  displayPhase: EngineState['phase'];
+  config: EngineConfig;
 }
 
 export const DEFAULT_INITIAL_CARD: ProgramCard = {
