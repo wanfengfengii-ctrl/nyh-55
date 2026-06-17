@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Paper,
   NumberInput,
@@ -14,21 +14,45 @@ import {
   Alert,
 } from '@mantine/core';
 import { useEngineStore } from '@/store/engineStore';
+import { useCollabStore } from '@/store/collabStore';
 import type { EngineConfig } from '@/types';
 
 export default function ControlPanel() {
   const updateConfig = useEngineStore((s) => s.updateConfig);
   const initialize = useEngineStore((s) => s.initialize);
+  const collabInitialize = useEngineStore((s) => s.collabInitialize);
   const stepForward = useEngineStore((s) => s.stepForward);
+  const collabStepForward = useEngineStore((s) => s.collabStepForward);
   const stepBack = useEngineStore((s) => s.stepBack);
+  const collabStepBack = useEngineStore((s) => s.collabStepBack);
   const reset = useEngineStore((s) => s.reset);
+  const collabReset = useEngineStore((s) => s.collabReset);
   const startContinuous = useEngineStore((s) => s.startContinuous);
+  const collabStartContinuous = useEngineStore((s) => s.collabStartContinuous);
   const stopContinuous = useEngineStore((s) => s.stopContinuous);
+  const collabStopContinuous = useEngineStore((s) => s.collabStopContinuous);
   const isAnimating = useEngineStore((s) => s.isAnimating);
   const isInitialized = useEngineStore((s) => s.isInitialized);
   const isRunning = useEngineStore((s) => s.isRunning);
   const engineState = useEngineStore((s) => s.engineState);
   const displayPhase = useEngineStore((s) => s.displayPhase);
+
+  const collab = useCollabStore();
+  const inSession = collab.isInSession;
+  const canControl = useMemo(
+    () => !inSession || collab.canControl(),
+    [inSession, collab]
+  );
+
+  const doInitialize = (cfg: Partial<EngineConfig>) => {
+    if (inSession) collabInitialize(cfg);
+    else initialize(cfg);
+  };
+  const doStepForward = inSession ? collabStepForward : stepForward;
+  const doStepBack = inSession ? collabStepBack : stepBack;
+  const doReset = inSession ? collabReset : reset;
+  const doStartContinuous = inSession ? collabStartContinuous : startContinuous;
+  const doStopContinuous = inSession ? collabStopContinuous : stopContinuous;
 
   const [inputValues, setInputValues] = useState('0, 1, 4');
   const [inputOrder, setInputOrder] = useState(2);
@@ -77,7 +101,7 @@ export default function ControlPanel() {
 
     try {
       updateConfig(newConfig);
-      initialize(newConfig);
+      doInitialize(newConfig);
       setInitError(null);
     } catch (e) {
       setInitError(e instanceof Error ? e.message : '初始化失败');
@@ -85,7 +109,7 @@ export default function ControlPanel() {
   };
 
   const handleReset = () => {
-    reset();
+    doReset();
     setInputValues('0, 1, 4');
     setInputOrder(2);
     setInputDigits(6);
@@ -93,8 +117,9 @@ export default function ControlPanel() {
     setInitError(null);
   };
 
-  const canStepForward = isInitialized && !isAnimating && !isRunning && engineState && engineState.phase !== 'error' && engineState.phase !== 'complete';
-  const canStepBack = isInitialized && !isAnimating && !isRunning && useEngineStore.getState().historyStack.length > 0;
+  const canStepForward = canControl && isInitialized && !isAnimating && !isRunning && engineState && engineState.phase !== 'error' && engineState.phase !== 'complete';
+  const canStepBack = canControl && isInitialized && !isAnimating && !isRunning && useEngineStore.getState().historyStack.length > 0;
+  const isLockedForAudience = inSession && !canControl && isInitialized;
 
   return (
     <Paper
@@ -119,7 +144,7 @@ export default function ControlPanel() {
           onChange={(v) => { setInputOrder(Number(v) || 1); setInitError(null); }}
           min={1}
           max={6}
-          disabled={isInitialized}
+          disabled={isInitialized || !canControl}
           styles={inputStyles}
           description="多项式的最高次幂"
         />
@@ -130,7 +155,7 @@ export default function ControlPanel() {
           onChange={(v) => { setInputDigits(Number(v) || 1); setInitError(null); }}
           min={1}
           max={10}
-          disabled={isInitialized}
+          disabled={isInitialized || !canControl}
           styles={inputStyles}
           description="每个数值的十进制位数"
         />
@@ -141,7 +166,7 @@ export default function ControlPanel() {
           onChange={(v) => { setInputMaxTurns(Number(v) || 1); setInitError(null); }}
           min={1}
           max={100}
-          disabled={isInitialized}
+          disabled={isInitialized || !canControl}
           styles={inputStyles}
         />
 
@@ -150,7 +175,7 @@ export default function ControlPanel() {
           value={inputValues}
           onChange={(e) => { setInputValues(e.currentTarget.value); setInitError(null); }}
           placeholder={`至少 ${inputOrder + 1} 个值`}
-          disabled={isInitialized}
+          disabled={isInitialized || !canControl}
           styles={inputStyles}
           description={`例如 x² 的值为 0, 1, 4`}
         />
@@ -165,14 +190,20 @@ export default function ControlPanel() {
           </Alert>
         )}
 
+        {isLockedForAudience && (
+          <Alert color="brass" variant="light" p="xs" styles={{ root: { background: 'rgba(200,169,81,0.1)' }, title: { color: '#C8A951' }, message: { color: '#C8A951', fontSize: 12 } }} title="观众模式">
+            等待主讲人操作...
+          </Alert>
+        )}
+
         {!isInitialized ? (
           <Button
             onClick={handleInitialize}
-            disabled={inputOrder <= 0}
+            disabled={inputOrder <= 0 || !canControl}
             styles={brassButtonStyles}
             fullWidth
           >
-            初始化差分机
+            {inSession ? '初始化并广播' : '初始化差分机'}
           </Button>
         ) : (
           <>
@@ -184,7 +215,7 @@ export default function ControlPanel() {
                   size="lg"
                   variant="filled"
                   disabled={!canStepForward}
-                  onClick={stepForward}
+                  onClick={doStepForward}
                   styles={greenActionStyles}
                 >
                   ▶
@@ -195,8 +226,8 @@ export default function ControlPanel() {
                 <ActionIcon
                   size="lg"
                   variant="filled"
-                  disabled={!canStepForward && !isRunning}
-                  onClick={isRunning ? stopContinuous : startContinuous}
+                  disabled={(!canStepForward && !isRunning) || !canControl}
+                  onClick={isRunning ? doStopContinuous : doStartContinuous}
                   styles={isRunning ? redActionStyles : copperActionStyles}
                 >
                   {isRunning ? '⏸' : '⏩'}
@@ -208,7 +239,7 @@ export default function ControlPanel() {
                   size="lg"
                   variant="filled"
                   disabled={!canStepBack}
-                  onClick={stepBack}
+                  onClick={doStepBack}
                   styles={brassActionStyles}
                 >
                   ◀

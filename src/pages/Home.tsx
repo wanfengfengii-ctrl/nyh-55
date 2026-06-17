@@ -6,12 +6,17 @@ import DiffTable from '@/components/DiffTable';
 import OperationLog from '@/components/OperationLog';
 import ErrorOverlay from '@/components/ErrorOverlay';
 import CardProgramPanel from '@/components/CardProgramPanel';
+import CollaborationBridge from '@/components/CollaborationBridge';
+import CollabSessionPanel from '@/components/CollabSessionPanel';
+import AnnotationPanel from '@/components/AnnotationPanel';
+import CollabControlPanel, { ReplayPanel } from '@/components/CollabControlPanel';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<string | null>('manual');
 
   return (
     <div style={{ height: '100vh', background: '#1A1A2E', overflow: 'hidden', position: 'relative' }}>
+      <CollaborationBridge />
       <div style={{
         position: 'absolute',
         top: 0,
@@ -51,7 +56,7 @@ export default function Home() {
                   color: '#8B8682',
                   fontSize: 13,
                   fontWeight: 600,
-                  padding: '8px 16px',
+                  padding: '8px 10px',
                   '&[data-active]': {
                     color: '#1A1A2E',
                     background: 'linear-gradient(135deg, #C8A951, #A08930)',
@@ -68,10 +73,13 @@ export default function Home() {
                 <Tabs.Tab value="cards" leftSection={<Text size="sm">🃏</Text>}>
                   卡片编程
                 </Tabs.Tab>
+                <Tabs.Tab value="collab" leftSection={<Text size="sm">🌐</Text>}>
+                  协同讲解
+                </Tabs.Tab>
               </Tabs.List>
 
-              <Tabs.Panel value="manual" style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                <Stack gap="sm" style={{ height: '100%', minHeight: 0, paddingTop: 8 }}>
+              <Tabs.Panel value="manual" style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, paddingTop: 8 }}>
+                <Stack gap="sm" style={{ height: '100%', minHeight: 0 }}>
                   <ControlPanel />
                   <div style={{ flex: 1, minHeight: 0 }}>
                     <OperationLog />
@@ -81,6 +89,17 @@ export default function Home() {
 
               <Tabs.Panel value="cards" style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, paddingTop: 8 }}>
                 <CardProgramPanel />
+              </Tabs.Panel>
+
+              <Tabs.Panel value="collab" style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, paddingTop: 8 }}>
+                <Stack gap="sm" style={{ height: '100%', minHeight: 0 }}>
+                  <CollabSessionPanel />
+                  <CollabControlPanel />
+                  <ReplayPanel />
+                  <div style={{ flex: 1, minHeight: 0 }}>
+                    <AnnotationPanel />
+                  </div>
+                </Stack>
               </Tabs.Panel>
             </Tabs>
           </Stack>

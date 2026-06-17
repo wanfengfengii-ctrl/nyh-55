@@ -4,9 +4,16 @@ import type {
   EngineConfig,
   ComputationStep,
   AnimationDetail,
+  StateSyncPayload,
+  ControlPayload,
 } from '@/types';
 import { DEFAULT_CONFIG } from '@/types';
 import { createEngineState, executeStep, deepCloneState } from '@/engine/DifferenceEngine';
+import { useCollabStore } from './collabStore';
+import { useRecordingStore } from './recordingStore';
+import { consistencyChecker } from '@/collaboration/ConsistencyChecker';
+
+type DemoControlAction = 'step_forward' | 'step_back' | 'reset' | 'continuous_start' | 'continuous_stop' | 'initialize';
 
 interface EngineStore {
   engineState: EngineState | null;
@@ -18,6 +25,9 @@ interface EngineStore {
   isInitialized: boolean;
   isRunning: boolean;
   displayPhase: EngineState['phase'];
+  syncMode: 'local' | 'host' | 'audience';
+  lastSyncSequence: number;
+  consistencyCheckInterval: ReturnType<typeof setInterval> | null;
 
   initialize: (config?: Partial<EngineConfig>) => void;
   stepForward: () => void;
@@ -31,6 +41,24 @@ interface EngineStore {
   continuousTick: () => void;
   setDisplayPhase: (p: EngineState['phase']) => void;
   setIsRunning: (v: boolean) => void;
+
+  collabStepForward: () => void;
+  collabStepBack: () => void;
+  collabReset: () => void;
+  collabStartContinuous: () => void;
+  collabStopContinuous: () => void;
+  collabInitialize: (config?: Partial<EngineConfig>) => void;
+  applyStateSync: (payload: StateSyncPayload) => void;
+  handleRemoteControl: (type: string, payload?: ControlPayload) => void;
+  enableConsistencyChecks: () => void;
+  disableConsistencyChecks: () => void;
+  broadcastState: () => void;
+  setSyncMode: (mode: EngineStore['syncMode']) => void;
+  recordAction: (action: DemoControlAction) => void;
+}
+
+function cloneState<T>(obj: T): T {
+  return JSON.parse(JSON.stringify(obj));
 }
 
 export const useEngineStore = create<EngineStore>((set, get) => ({
@@ -43,6 +71,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
   isInitialized: false,
   isRunning: false,
   displayPhase: 'idle',
+  syncMode: 'local',
+  lastSyncSequence: 0,
+  consistencyCheckInterval: null,
 
   initialize: (configOverride) => {
     const cfg = { ...get().config, ...configOverride };
@@ -71,7 +102,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     const snapshot = deepCloneState(engineState);
     const result = executeStep(engineState, engineState.currentStep);
-
     const hasCarry = result.animation.carryTriggers.length > 0;
 
     set((s) => ({
@@ -85,21 +115,15 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     if (hasCarry) {
       setTimeout(() => {
-      if (get().isAnimating) {
-        set({ displayPhase: 'carrying' });
-      }
+        if (get().isAnimating) set({ displayPhase: 'carrying' });
       }, 500);
     }
-
-    if (result.error && isRunning) {
-      set({ isRunning: false });
-    }
+    if (result.error && isRunning) set({ isRunning: false });
   },
 
   stepBack: () => {
     const { historyStack, isAnimating, isRunning } = get();
     if (isAnimating || isRunning || historyStack.length === 0) return;
-
     const prevState = historyStack[historyStack.length - 1];
     set((s) => ({
       engineState: prevState,
@@ -138,12 +162,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
   },
   setAnimationDetail: (d) => set({ animationDetail: d }),
   setDisplayPhase: (p) => set({ displayPhase: p }),
-
   setIsRunning: (v) => set({ isRunning: v }),
-
-  updateConfig: (partial) => {
-    set((s) => ({ config: { ...s.config, ...partial } }));
-  },
+  updateConfig: (partial) => set((s) => ({ config: { ...s.config, ...partial } })),
 
   startContinuous: () => {
     const { engineState, isAnimating } = get();
@@ -151,10 +171,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     if (engineState.phase === 'error' || engineState.phase === 'complete') return;
     set({ isRunning: true });
   },
-
-  stopContinuous: () => {
-    set({ isRunning: false });
-  },
+  stopContinuous: () => set({ isRunning: false }),
 
   continuousTick: () => {
     const { isRunning, isAnimating, engineState } = get();
@@ -165,4 +182,159 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     }
     get().stepForward();
   },
+
+  collabInitialize: (configOverride) => {
+    const collab = useCollabStore.getState();
+    if (collab.isInSession && !collab.canControl()) return;
+    get().initialize(configOverride);
+    if (collab.isInSession && collab.isPresenter()) {
+      collab.sendInitialize(configOverride || {});
+      get().broadcastState();
+      get().recordAction('initialize');
+    }
+  },
+
+  collabStepForward: () => {
+    const collab = useCollabStore.getState();
+    if (collab.isInSession && !collab.canControl()) return;
+    const { engineState, isAnimating } = get();
+    if (!engineState || isAnimating) return;
+    if (engineState.phase === 'error' || engineState.phase === 'complete') return;
+
+    get().stepForward();
+    if (collab.isInSession && collab.isPresenter()) {
+      collab.sendControlCommand('control_step_forward');
+      setTimeout(() => get().broadcastState(), 1300);
+      get().recordAction('step_forward');
+    }
+  },
+
+  collabStepBack: () => {
+    const collab = useCollabStore.getState();
+    if (collab.isInSession && !collab.canControl()) return;
+    get().stepBack();
+    if (collab.isInSession && collab.isPresenter()) {
+      collab.sendControlCommand('control_step_back');
+      get().broadcastState();
+      get().recordAction('step_back');
+    }
+  },
+
+  collabReset: () => {
+    const collab = useCollabStore.getState();
+    if (collab.isInSession && !collab.canControl()) return;
+    get().reset();
+    if (collab.isInSession && collab.isPresenter()) {
+      collab.sendControlCommand('control_reset');
+      get().broadcastState();
+      get().recordAction('reset');
+    }
+  },
+
+  collabStartContinuous: () => {
+    const collab = useCollabStore.getState();
+    if (collab.isInSession && !collab.canControl()) return;
+    get().startContinuous();
+    if (collab.isInSession && collab.isPresenter()) {
+      collab.sendControlCommand('control_continuous_start');
+      get().recordAction('continuous_start');
+    }
+  },
+
+  collabStopContinuous: () => {
+    const collab = useCollabStore.getState();
+    if (collab.isInSession && !collab.canControl()) return;
+    get().stopContinuous();
+    if (collab.isInSession && collab.isPresenter()) {
+      collab.sendControlCommand('control_continuous_stop');
+      get().recordAction('continuous_stop');
+    }
+  },
+
+  applyStateSync: (payload) => {
+    if (payload.sequence <= get().lastSyncSequence) return;
+    set({
+      engineState: payload.engineSnapshot ? cloneState(payload.engineSnapshot) : null,
+      operationLog: payload.operationLog ? cloneState(payload.operationLog) : [],
+      historyStack: payload.historyStack ? cloneState(payload.historyStack) : [],
+      isAnimating: payload.isAnimating,
+      isRunning: payload.isRunning,
+      displayPhase: payload.displayPhase,
+      config: payload.config ? { ...payload.config } : get().config,
+      isInitialized: payload.engineSnapshot !== null,
+      lastSyncSequence: payload.sequence,
+    });
+    useCollabStore.getState().setSyncStatus('synced');
+  },
+
+  handleRemoteControl: (type, payload) => {
+    useCollabStore.getState().setSyncStatus('syncing');
+    switch (type) {
+      case 'control_step_forward':
+        get().stepForward();
+        break;
+      case 'control_step_back':
+        get().stepBack();
+        break;
+      case 'control_reset':
+        get().reset();
+        break;
+      case 'control_continuous_start':
+        get().startContinuous();
+        break;
+      case 'control_continuous_stop':
+        get().stopContinuous();
+        break;
+      case 'control_initialize':
+        get().initialize(payload?.config);
+        break;
+    }
+  },
+
+  broadcastState: () => {
+    const collab = useCollabStore.getState();
+    if (!collab.isInSession || !collab.isPresenter()) return;
+    const s = get();
+    collab.sendStateSync({
+      engineSnapshot: s.engineState ? cloneState(s.engineState) : null,
+      operationLog: cloneState(s.operationLog),
+      historyStack: cloneState(s.historyStack),
+      isAnimating: s.isAnimating,
+      isRunning: s.isRunning,
+      displayPhase: s.displayPhase,
+      config: { ...s.config },
+    });
+  },
+
+  recordAction: (action: DemoControlAction) => {
+    const rec = useRecordingStore.getState();
+    if (rec.isRecording) {
+      setTimeout(() => rec.recordStep(action), 50);
+    }
+  },
+
+  enableConsistencyChecks: () => {
+    get().disableConsistencyChecks();
+    const interval = setInterval(async () => {
+      const collab = useCollabStore.getState();
+      if (!collab.isInSession) return;
+      const engine = useEngineStore.getState();
+      if (!engine.isInitialized) return;
+      const report = await consistencyChecker.checkCurrentState();
+      if (!report.matches) {
+        collab.setSyncStatus('out_of_sync');
+      }
+    }, 5000);
+    set({ consistencyCheckInterval: interval });
+  },
+
+  disableConsistencyChecks: () => {
+    const interval = get().consistencyCheckInterval;
+    if (interval) {
+      clearInterval(interval);
+      set({ consistencyCheckInterval: null });
+    }
+  },
+
+  setSyncMode: (mode) => set({ syncMode: mode }),
 }));

@@ -226,3 +226,147 @@ export const DEFAULT_ERROR_CARD: ProgramCard = {
     },
   },
 };
+
+export type UserRole = 'host' | 'audience';
+
+export interface Participant {
+  id: string;
+  name: string;
+  role: UserRole;
+  joinedAt: number;
+  lastSeen: number;
+  avatarColor: string;
+  stateHash: string | null;
+}
+
+export type SessionStatus = 'waiting' | 'running' | 'paused' | 'error' | 'ended';
+
+export interface CollaborativeSession {
+  id: string;
+  name: string;
+  hostId: string;
+  createdAt: number;
+  status: SessionStatus;
+  participants: Map<string, Participant>;
+  currentPresenterId: string;
+  engineConfig: EngineConfig | null;
+}
+
+export type AnnotationTargetType = 'wheel' | 'lever' | 'gear' | 'column' | 'step';
+
+export interface AnnotationTarget {
+  type: AnnotationTargetType;
+  columnIndex?: number;
+  wheelIndex?: number;
+  leverIndex?: number;
+  stepNumber?: number;
+  boundingBox?: { x: number; y: number; width: number; height: number };
+}
+
+export interface Annotation {
+  id: string;
+  sessionId: string;
+  authorId: string;
+  authorName: string;
+  target: AnnotationTarget;
+  content: string;
+  stepNumber: number;
+  createdAt: number;
+  updatedAt: number;
+  resolved: boolean;
+  color: string;
+}
+
+export interface DemoStepRecord {
+  stepNumber: number;
+  engineSnapshot: EngineState;
+  operationLogSnapshot: ComputationStep[];
+  operatorId: string;
+  operatorName: string;
+  timestamp: number;
+  annotations: Annotation[];
+  narrationText?: string;
+  controlAction: 'step_forward' | 'step_back' | 'reset' | 'continuous_start' | 'continuous_stop' | 'initialize';
+}
+
+export interface DemoRecording {
+  id: string;
+  sessionId: string;
+  sessionName: string;
+  startTime: number;
+  endTime: number | null;
+  steps: DemoStepRecord[];
+  hostId: string;
+  hostName: string;
+  annotations: Annotation[];
+  isComplete: boolean;
+}
+
+export type CollabMessageType =
+  | 'session_created'
+  | 'session_joined'
+  | 'session_left'
+  | 'participant_joined'
+  | 'participant_left'
+  | 'participant_updated'
+  | 'control_step_forward'
+  | 'control_step_back'
+  | 'control_reset'
+  | 'control_continuous_start'
+  | 'control_continuous_stop'
+  | 'control_initialize'
+  | 'state_sync'
+  | 'state_hash_check'
+  | 'state_mismatch'
+  | 'annotation_added'
+  | 'annotation_updated'
+  | 'annotation_resolved'
+  | 'recording_started'
+  | 'recording_stopped'
+  | 'session_status_changed'
+  | 'presenter_changed'
+  | 'error_alert';
+
+export interface CollabMessage<T = unknown> {
+  id: string;
+  type: CollabMessageType;
+  sessionId: string;
+  senderId: string;
+  senderName: string;
+  timestamp: number;
+  payload: T;
+}
+
+export interface StateSyncPayload {
+  engineSnapshot: EngineState | null;
+  operationLog: ComputationStep[];
+  historyStack: EngineState[];
+  isAnimating: boolean;
+  isRunning: boolean;
+  displayPhase: EngineState['phase'];
+  config: EngineConfig;
+  sequence: number;
+}
+
+export interface StateHashPayload {
+  stepNumber: number;
+  stateHash: string;
+  participantId: string;
+}
+
+export interface StateMismatchPayload {
+  detectedBy: string;
+  expectedHash: string;
+  actualHash: string;
+  stepNumber: number;
+  hostStateSnapshot?: StateSyncPayload;
+}
+
+export interface ControlPayload {
+  config?: Partial<EngineConfig>;
+}
+
+export interface SessionStatusPayload {
+  status: SessionStatus;
+  reason?: string;
+}
