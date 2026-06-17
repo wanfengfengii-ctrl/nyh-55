@@ -1,4 +1,4 @@
-import { Container, Graphics, Text } from 'pixi.js';
+import { Container, Graphics, Text, FederatedPointerEvent } from 'pixi.js';
 
 const BRASS = 0xC8A951;
 const DARK_BRONZE = 0x4A3728;
@@ -11,23 +11,34 @@ export const WHEEL_SPACING = 56;
 
 const DIGIT_FONT_SIZE = 14;
 
+export interface WheelTargetInfo {
+  type: 'wheel';
+  columnIndex: number;
+  wheelIndex: number;
+}
+
 interface WheelVisuals {
   container: Container;
   digitTexts: Text[];
   highlightRing: Graphics;
   carryIndicator: Graphics;
   glowRing: Graphics;
+  annotationHighlight: Graphics;
   currentValue: number;
   targetRotation: number;
   currentRotation: number;
   isCarrying: boolean;
   isError: boolean;
   errorPulse: number;
+  columnIndex: number;
+  wheelIndex: number;
 }
 
 export class WheelRenderer {
   private wheels: Map<string, WheelVisuals> = new Map();
   private parent: Container;
+  private onWheelClick: ((info: WheelTargetInfo) => void) | null = null;
+  private interactive = false;
 
   constructor(parent: Container) {
     this.parent = parent;
@@ -35,6 +46,38 @@ export class WheelRenderer {
 
   getWheelKey(column: number, wheelIndex: number): string {
     return `${column}-${wheelIndex}`;
+  }
+
+  setInteractive(interactive: boolean) {
+    this.interactive = interactive;
+    for (const visuals of this.wheels.values()) {
+      visuals.container.eventMode = interactive ? 'static' : 'auto';
+      visuals.container.cursor = interactive ? 'pointer' : 'default';
+    }
+  }
+
+  setOnWheelClick(callback: (info: WheelTargetInfo) => void) {
+    this.onWheelClick = callback;
+  }
+
+  setAnnotationHighlight(column: number, wheelIndex: number, highlight: boolean, color: number = COPPER_GREEN) {
+    const key = this.getWheelKey(column, wheelIndex);
+    const visuals = this.wheels.get(key);
+    if (!visuals) return;
+    visuals.annotationHighlight.visible = highlight;
+    if (highlight) {
+      visuals.annotationHighlight.clear();
+      visuals.annotationHighlight.circle(0, 0, WHEEL_RADIUS + 8);
+      visuals.annotationHighlight.stroke({ color, width: 3, alpha: 1 });
+      visuals.annotationHighlight.circle(0, 0, WHEEL_RADIUS + 12);
+      visuals.annotationHighlight.stroke({ color, width: 1, alpha: 0.5 });
+    }
+  }
+
+  clearAllHighlights() {
+    for (const visuals of this.wheels.values()) {
+      visuals.annotationHighlight.visible = false;
+    }
   }
 
   createWheel(column: number, wheelIndex: number, digit: number, x: number, y: number): WheelVisuals {
@@ -104,6 +147,10 @@ export class WheelRenderer {
     carryIndicator.fill({ color: WARNING_RED, alpha: 0 });
     container.addChild(carryIndicator);
 
+    const annotationHighlight = new Graphics();
+    annotationHighlight.visible = false;
+    container.addChild(annotationHighlight);
+
     const rotation = (digit / 10) * Math.PI * 2;
     container.rotation = -rotation;
 
@@ -113,17 +160,31 @@ export class WheelRenderer {
       highlightRing,
       carryIndicator,
       glowRing,
+      annotationHighlight,
       currentValue: digit,
       targetRotation: rotation,
       currentRotation: rotation,
       isCarrying: false,
       isError: false,
       errorPulse: 0,
+      columnIndex: column,
+      wheelIndex,
     };
 
     const key = this.getWheelKey(column, wheelIndex);
     this.wheels.set(key, visuals);
     this.parent.addChild(container);
+
+    if (this.interactive) {
+      container.eventMode = 'static';
+      container.cursor = 'pointer';
+    }
+
+    container.on('pointerdown', () => {
+      if (this.onWheelClick) {
+        this.onWheelClick({ type: 'wheel', columnIndex: column, wheelIndex });
+      }
+    });
 
     return visuals;
   }

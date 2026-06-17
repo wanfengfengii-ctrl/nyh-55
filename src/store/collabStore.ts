@@ -10,6 +10,7 @@ import type {
   SessionStatusPayload,
   ControlPayload,
   EngineConfig,
+  SessionInfoPayload,
 } from '@/types';
 import { MessageBus } from '@/collaboration/MessageBus';
 import {
@@ -20,6 +21,75 @@ import {
   getLocalUserName,
   saveLocalUserName,
 } from '@/collaboration/utils';
+
+const ACTIVE_SESSIONS_KEY = 'diff_engine_active_sessions';
+const SESSION_TIMEOUT = 60000;
+
+interface ActiveSessionEntry {
+  id: string;
+  code: string;
+  name: string;
+  hostId: string;
+  hostName: string;
+  createdAt: number;
+  lastHeartbeat: number;
+  participantCount: number;
+}
+
+function getActiveSessions(): Map<string, ActiveSessionEntry> {
+  try {
+    const data = localStorage.getItem(ACTIVE_SESSIONS_KEY);
+    if (!data) return new Map();
+    const arr = JSON.parse(data) as ActiveSessionEntry[];
+    const now = Date.now();
+    const filtered = arr.filter((s) => now - s.lastHeartbeat < SESSION_TIMEOUT);
+    return new Map(filtered.map((s) => [s.code, s]));
+  } catch {
+    return new Map();
+  }
+}
+
+function saveActiveSessions(sessions: Map<string, ActiveSessionEntry>) {
+  try {
+    const arr = Array.from(sessions.values());
+    localStorage.setItem(ACTIVE_SESSIONS_KEY, JSON.stringify(arr));
+  } catch {
+    /* ignore */
+  }
+}
+
+function registerActiveSession(entry: ActiveSessionEntry) {
+  const sessions = getActiveSessions();
+  sessions.set(entry.code, entry);
+  saveActiveSessions(sessions);
+}
+
+function unregisterActiveSession(code: string) {
+  const sessions = getActiveSessions();
+  sessions.delete(code);
+  saveActiveSessions(sessions);
+}
+
+function updateActiveSessionHeartbeat(code: string, participantCount: number) {
+  const sessions = getActiveSessions();
+  const entry = sessions.get(code);
+  if (entry) {
+    entry.lastHeartbeat = Date.now();
+    entry.participantCount = participantCount;
+    sessions.set(code, entry);
+    saveActiveSessions(sessions);
+  }
+}
+
+export function isSessionCodeValid(code: string): boolean {
+  const sessions = getActiveSessions();
+  return sessions.has(code);
+}
+
+export function getActiveSessionInfo(code: string): ActiveSessionEntry | null {
+  const sessions = getActiveSessions();
+  return sessions.get(code) || null;
+}
 
 export interface CollabStoreState {
   isInSession: boolean;
@@ -41,7 +111,7 @@ export interface CollabStoreState {
   isHostControlLocked: boolean;
 
   createSession: (name: string, presenterName?: string) => { sessionId: string; sessionCode: string };
-  joinSession: (code: string, participantName?: string) => boolean;
+  joinSession: (code: string, participantName?: string) => { success: boolean; error?: string; sessionName?: string };
   leaveSession: () => void;
   updateUserName: (name: string) => void;
   setSessionStatus: (status: SessionStatus, reason?: string) => void;
@@ -107,6 +177,23 @@ export const useCollabStore = create<CollabStoreState>((set, get) => {
     mb.send('participant_updated', participant, userName);
   };
 
+  const sendSessionInfo = () => {
+    const mb = get().messageBus;
+    if (!mb) return;
+    const state = get();
+    const info: SessionInfoPayload = {
+      sessionId: state.sessionId || '',
+      sessionCode: state.sessionCode || '',
+      sessionName: state.sessionName,
+      hostId: state.currentPresenterId || '',
+      hostName: state.getCurrentPresenter()?.name || '',
+      createdAt: Date.now(),
+      participantCount: state.participants.length,
+      currentStatus: state.sessionStatus,
+    };
+    mb.send('session_info', info, state.userName);
+  };
+
   return {
     isInSession: false,
     sessionId: null,
@@ -132,6 +219,7 @@ export const useCollabStore = create<CollabStoreState>((set, get) => {
       const sessionCode = generateSessionCode();
       const userId = get().userId;
       const finalName = presenterName || get().userName;
+      const sessionName = name || '差分机协同演示';
       const avatarColor = randomColor();
 
       saveLocalUserName(finalName);
@@ -158,6 +246,7 @@ export const useCollabStore = create<CollabStoreState>((set, get) => {
           return { participants: updated };
         });
         sendParticipantUpdate();
+        sendSessionInfo();
         const state = get();
         mb.send('session_status_changed', { status: state.sessionStatus } as SessionStatusPayload, finalName);
       });
@@ -175,6 +264,7 @@ export const useCollabStore = create<CollabStoreState>((set, get) => {
         set((s) => ({
           participants: s.participants.filter((p) => p.id !== msg.payload.id),
         }));
+        updateActiveSessionHeartbeat(sessionCode, get().participants.length - 1);
       });
 
       const unsub4 = mb.on('presenter_changed', (msg: CollabMessage<{ presenterId: string }>) => {
@@ -193,13 +283,17 @@ export const useCollabStore = create<CollabStoreState>((set, get) => {
         set({ sessionStatus: msg.payload.status });
       });
 
-      cleanupHandlers = [unsub1, unsub2, unsub3, unsub4, unsub5];
+      const unsub6 = mb.on('session_info_request', () => {
+        sendSessionInfo();
+      });
+
+      cleanupHandlers = [unsub1, unsub2, unsub3, unsub4, unsub5, unsub6];
 
       set({
         isInSession: true,
         sessionId,
         sessionCode,
-        sessionName: name || '差分机协同演示',
+        sessionName,
         sessionStatus: 'waiting',
         userId,
         userName: finalName,
@@ -214,7 +308,18 @@ export const useCollabStore = create<CollabStoreState>((set, get) => {
         isHostControlLocked: false,
       });
 
-      mb.send('session_created', { id: sessionId, code: sessionCode, name }, finalName);
+      registerActiveSession({
+        id: sessionId,
+        code: sessionCode,
+        name: sessionName,
+        hostId: userId,
+        hostName: finalName,
+        createdAt: Date.now(),
+        lastHeartbeat: Date.now(),
+        participantCount: 1,
+      });
+
+      mb.send('session_created', { id: sessionId, code: sessionCode, name: sessionName }, finalName);
 
       heartbeatTimer = setInterval(() => {
         sendParticipantUpdate();
@@ -223,15 +328,25 @@ export const useCollabStore = create<CollabStoreState>((set, get) => {
             (p) => Date.now() - p.lastSeen < participantTimeout || p.id === s.userId
           ),
         }));
+        updateActiveSessionHeartbeat(sessionCode, get().participants.length);
       }, heartbeatInterval);
 
       return { sessionId, sessionCode };
     },
 
     joinSession: (code, participantName) => {
-      if (!code || code.length < 4) return false;
+      if (!code || code.trim().length < 4) {
+        return { success: false, error: '邀请码格式不正确（至少4位）' };
+      }
+      const cleanCode = code.trim().toUpperCase();
+
+      const activeInfo = getActiveSessionInfo(cleanCode);
+      if (!activeInfo) {
+        return { success: false, error: '未找到该会话，请检查邀请码是否正确' };
+      }
+
       cleanupSession();
-      const sessionId = code;
+      const sessionId = cleanCode;
       const userId = get().userId;
       const finalName = participantName || get().userName;
       const avatarColor = randomColor();
@@ -308,19 +423,27 @@ export const useCollabStore = create<CollabStoreState>((set, get) => {
         });
       });
 
-      cleanupHandlers = [unsub1, unsub2, unsub3, unsub4, unsub5, unsub6, unsub7];
+      const unsub8 = mb.on('session_info', (msg: CollabMessage<SessionInfoPayload>) => {
+        const info = msg.payload;
+        set({
+          sessionName: info.sessionName,
+          sessionStatus: info.currentStatus,
+        });
+      });
+
+      cleanupHandlers = [unsub1, unsub2, unsub3, unsub4, unsub5, unsub6, unsub7, unsub8];
 
       set({
         isInSession: true,
         sessionId,
-        sessionCode: code,
-        sessionName: '差分机协同演示',
+        sessionCode: cleanCode,
+        sessionName: activeInfo.name,
         sessionStatus: 'waiting',
         userId,
         userName: finalName,
         userRole: 'audience',
         participants: [newParticipant],
-        currentPresenterId: null,
+        currentPresenterId: activeInfo.hostId,
         messageBus: mb,
         sequenceNumber: 0,
         mismatchError: null,
@@ -330,20 +453,26 @@ export const useCollabStore = create<CollabStoreState>((set, get) => {
       });
 
       mb.send('participant_joined', newParticipant, finalName);
+      mb.send('session_info_request', { sessionId }, finalName);
+      updateActiveSessionHeartbeat(cleanCode, activeInfo.participantCount + 1);
 
       heartbeatTimer = setInterval(() => {
         sendParticipantUpdate();
       }, heartbeatInterval);
 
-      return true;
+      return { success: true, sessionName: activeInfo.name };
     },
 
     leaveSession: () => {
       const mb = get().messageBus;
       const userId = get().userId;
       const userName = get().userName;
+      const sessionCode = get().sessionCode;
       if (mb) {
         mb.send('participant_left', { id: userId }, userName);
+      }
+      if (get().isPresenter() && sessionCode) {
+        unregisterActiveSession(sessionCode);
       }
       cleanupSession();
       set({

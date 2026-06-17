@@ -1,8 +1,11 @@
 import { Application, Container, Graphics, Text } from 'pixi.js';
 import { WheelRenderer, WHEEL_RADIUS, WHEEL_SPACING } from './WheelRenderer';
 import { GearRenderer } from './GearRenderer';
+import type { GearTargetInfo } from './GearRenderer';
 import { CarryRenderer } from './CarryRenderer';
-import type { EngineState, AnimationDetail } from '@/types';
+import type { LeverTargetInfo } from './CarryRenderer';
+import type { WheelTargetInfo } from './WheelRenderer';
+import type { EngineState, AnimationDetail, AnnotationTarget } from '@/types';
 
 const DARK_BG = 0x1A1A2E;
 const PARCHMENT = 0xF5F0E1;
@@ -33,6 +36,8 @@ export class EngineScene {
   private onAnimationComplete: (() => void) | null = null;
   private errorPulseTime = 0;
   private idleTime = 0;
+  private onCanvasElementClick: ((target: AnnotationTarget) => void) | null = null;
+  private isAnnotationMode = false;
 
   private mechanicsContainer: Container | null = null;
   private decorationContainer: Container | null = null;
@@ -71,6 +76,35 @@ export class EngineScene {
     this.wheelRenderer = new WheelRenderer(this.mechanicsContainer);
     this.gearRenderer = new GearRenderer(this.mechanicsContainer);
     this.carryRenderer = new CarryRenderer(this.mechanicsContainer);
+
+    this.wheelRenderer.setOnWheelClick((info: WheelTargetInfo) => {
+      if (this.onCanvasElementClick) {
+        this.onCanvasElementClick({
+          type: 'wheel',
+          columnIndex: info.columnIndex,
+          wheelIndex: info.wheelIndex,
+        });
+      }
+    });
+
+    this.carryRenderer.setOnLeverClick((info: LeverTargetInfo) => {
+      if (this.onCanvasElementClick) {
+        this.onCanvasElementClick({
+          type: 'lever',
+          columnIndex: info.columnIndex,
+          leverIndex: info.leverIndex,
+        });
+      }
+    });
+
+    this.gearRenderer.setOnGearClick((info: GearTargetInfo) => {
+      if (this.onCanvasElementClick) {
+        this.onCanvasElementClick({
+          type: 'gear',
+          columnIndex: info.fromColumn,
+        });
+      }
+    });
 
     this.app.ticker.add(this.update.bind(this));
     this.initialized = true;
@@ -328,6 +362,44 @@ export class EngineScene {
 
   setOnAnimationComplete(cb: () => void) {
     this.onAnimationComplete = cb;
+  }
+
+  setOnCanvasElementClick(cb: (target: AnnotationTarget) => void) {
+    this.onCanvasElementClick = cb;
+  }
+
+  setAnnotationMode(active: boolean) {
+    this.isAnnotationMode = active;
+    if (this.wheelRenderer) this.wheelRenderer.setInteractive(active);
+    if (this.carryRenderer) this.carryRenderer.setInteractive(active);
+    if (this.gearRenderer) this.gearRenderer.setInteractive(active);
+  }
+
+  highlightAnnotationTarget(target: AnnotationTarget, highlight: boolean) {
+    if (!highlight) {
+      this.wheelRenderer?.clearAllHighlights();
+      this.carryRenderer?.clearAllHighlights();
+      this.gearRenderer?.clearAllHighlights();
+      return;
+    }
+    this.wheelRenderer?.clearAllHighlights();
+    this.carryRenderer?.clearAllHighlights();
+    this.gearRenderer?.clearAllHighlights();
+
+    if (target.type === 'wheel' && target.columnIndex !== undefined && target.wheelIndex !== undefined) {
+      this.wheelRenderer?.setAnnotationHighlight(target.columnIndex, target.wheelIndex, true);
+    } else if (target.type === 'lever' && target.columnIndex !== undefined && target.leverIndex !== undefined) {
+      this.carryRenderer?.setAnnotationHighlight(target.columnIndex, target.leverIndex, true);
+    } else if (target.type === 'gear' && target.columnIndex !== undefined) {
+      this.gearRenderer?.setAnnotationHighlight(target.columnIndex, target.columnIndex + 1, true);
+    } else if (target.type === 'column' && target.columnIndex !== undefined) {
+      const state = this.currentEngineState;
+      if (state) {
+        for (let w = 0; w < state.numDigits; w++) {
+          this.wheelRenderer?.setAnnotationHighlight(target.columnIndex, w, true);
+        }
+      }
+    }
   }
 
   private update(ticker: { deltaTime: number }) {

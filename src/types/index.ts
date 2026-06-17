@@ -325,7 +325,9 @@ export type CollabMessageType =
   | 'recording_stopped'
   | 'session_status_changed'
   | 'presenter_changed'
-  | 'error_alert';
+  | 'error_alert'
+  | 'session_info'
+  | 'session_info_request';
 
 export interface CollabMessage<T = unknown> {
   id: string;
@@ -369,4 +371,16 @@ export interface ControlPayload {
 export interface SessionStatusPayload {
   status: SessionStatus;
   reason?: string;
+}
+
+export interface SessionInfoPayload {
+  sessionId: string;
+  sessionCode: string;
+  sessionName: string;
+  hostId: string;
+  hostName: string;
+  createdAt: number;
+  participantCount: number;
+  currentStatus: SessionStatus;
+  engineConfig?: EngineConfig | null;
 }

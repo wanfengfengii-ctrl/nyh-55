@@ -7,6 +7,12 @@ const STEEL = 0x8B8682;
 const GEAR_TEETH = 16;
 const GEAR_RADIUS = 16;
 
+export interface GearTargetInfo {
+  type: 'gear';
+  fromColumn: number;
+  toColumn: number;
+}
+
 interface GearVisuals {
   container: Container;
   gear: Graphics;
@@ -19,9 +25,40 @@ interface GearVisuals {
 export class GearRenderer {
   private gears: Map<string, GearVisuals> = new Map();
   private parent: Container;
+  private onGearClick: ((info: GearTargetInfo) => void) | null = null;
+  private interactive = false;
 
   constructor(parent: Container) {
     this.parent = parent;
+  }
+
+  setInteractive(interactive: boolean) {
+    this.interactive = interactive;
+    for (const visuals of this.gears.values()) {
+      visuals.container.eventMode = interactive ? 'static' : 'auto';
+      visuals.container.cursor = interactive ? 'pointer' : 'default';
+    }
+  }
+
+  setOnGearClick(callback: (info: GearTargetInfo) => void) {
+    this.onGearClick = callback;
+  }
+
+  setAnnotationHighlight(fromCol: number, toCol: number, highlight: boolean, color: number = BRASS) {
+    const key = this.getGearKey(fromCol, toCol);
+    const visuals = this.gears.get(key);
+    if (!visuals) return;
+    if (highlight) {
+      visuals.container.scale.set(1.2);
+    } else {
+      visuals.container.scale.set(1);
+    }
+  }
+
+  clearAllHighlights() {
+    for (const visuals of this.gears.values()) {
+      visuals.container.scale.set(1);
+    }
   }
 
   getGearKey(fromCol: number, toCol: number): string {
@@ -48,6 +85,17 @@ export class GearRenderer {
     const key = this.getGearKey(fromCol, toCol);
     this.gears.set(key, visuals);
     this.parent.addChild(container);
+
+    if (this.interactive) {
+      container.eventMode = 'static';
+      container.cursor = 'pointer';
+    }
+
+    container.on('pointerdown', () => {
+      if (this.onGearClick) {
+        this.onGearClick({ type: 'gear', fromColumn: fromCol, toColumn: toCol });
+      }
+    });
 
     return visuals;
   }

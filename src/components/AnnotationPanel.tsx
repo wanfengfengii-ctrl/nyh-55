@@ -64,6 +64,14 @@ export default function AnnotationPanel() {
     { value: 'step', label: '📝 步骤批注' },
   ];
 
+  const targetNameMap: Record<string, string> = {
+    wheel: '数字轮',
+    lever: '进位杆',
+    gear: '齿轮',
+    column: '差分列',
+    step: '步骤',
+  };
+
   const stepAnnotations = getAnnotationsForStep(filterStepNumber ?? currentStep);
   const allAnnotations = showResolved
     ? annotations
@@ -170,59 +178,81 @@ export default function AnnotationPanel() {
               </Text>
 
               {drawingTargetType !== 'step' && (
-                <Group gap="xs">
-                  <TextInput
-                    size="xs"
-                    label="列索引"
-                    type="number"
-                    value={String(localDraftTarget?.columnIndex ?? 0)}
-                    onChange={(e) =>
-                      setLocalDraftTarget({
-                        ...localDraftTarget,
-                        type: drawingTargetType,
-                        columnIndex: Number(e.currentTarget.value) || 0,
-                      })
-                    }
-                    min={0}
-                    styles={miniInputStyles}
-                  />
-                  {drawingTargetType === 'wheel' && (
+                <>
+                  <Paper p="xs" radius="sm" style={{ background: 'rgba(46,139,87,0.1)', border: '1px solid #2E8B57' }}>
+                    <Stack gap={4}>
+                      <Text size="xs" fw={600} style={{ color: '#2E8B57' }}>
+                        👆 点击画布上的{targetNameMap[drawingTargetType] || '目标'}自动定位
+                      </Text>
+                      {localDraftTarget ? (
+                        <Group gap="xs">
+                          <Badge size="xs" variant="filled" style={{ background: '#2E8B57' }}>
+                            已定位: 列{localDraftTarget.columnIndex ?? '-'}
+                            {localDraftTarget.wheelIndex !== undefined && `:W${localDraftTarget.wheelIndex}`}
+                            {localDraftTarget.leverIndex !== undefined && `:L${localDraftTarget.leverIndex}`}
+                          </Badge>
+                        </Group>
+                      ) : (
+                        <Text size="xs" style={{ color: '#8B8682' }}>
+                          请在左侧机械画布上点击要标注的{targetNameMap[drawingTargetType] || '目标'}
+                        </Text>
+                      )}
+                    </Stack>
+                  </Paper>
+                  <Group gap="xs">
                     <TextInput
                       size="xs"
-                      label="轮索引"
+                      label="列索引"
                       type="number"
-                      value={String(localDraftTarget?.wheelIndex ?? 0)}
+                      value={String(localDraftTarget?.columnIndex ?? 0)}
                       onChange={(e) =>
                         setLocalDraftTarget({
                           ...localDraftTarget,
                           type: drawingTargetType,
-                          columnIndex: localDraftTarget?.columnIndex ?? 0,
-                          wheelIndex: Number(e.currentTarget.value) || 0,
+                          columnIndex: Number(e.currentTarget.value) || 0,
                         })
                       }
                       min={0}
                       styles={miniInputStyles}
                     />
-                  )}
-                  {drawingTargetType === 'lever' && (
-                    <TextInput
-                      size="xs"
-                      label="杆索引"
-                      type="number"
-                      value={String(localDraftTarget?.leverIndex ?? 0)}
-                      onChange={(e) =>
-                        setLocalDraftTarget({
-                          ...localDraftTarget,
-                          type: drawingTargetType,
-                          columnIndex: localDraftTarget?.columnIndex ?? 0,
-                          leverIndex: Number(e.currentTarget.value) || 0,
-                        })
-                      }
-                      min={0}
-                      styles={miniInputStyles}
-                    />
-                  )}
-                </Group>
+                    {drawingTargetType === 'wheel' && (
+                      <TextInput
+                        size="xs"
+                        label="轮索引"
+                        type="number"
+                        value={String(localDraftTarget?.wheelIndex ?? 0)}
+                        onChange={(e) =>
+                          setLocalDraftTarget({
+                            ...localDraftTarget,
+                            type: drawingTargetType,
+                            columnIndex: localDraftTarget?.columnIndex ?? 0,
+                            wheelIndex: Number(e.currentTarget.value) || 0,
+                          })
+                        }
+                        min={0}
+                        styles={miniInputStyles}
+                      />
+                    )}
+                    {drawingTargetType === 'lever' && (
+                      <TextInput
+                        size="xs"
+                        label="杆索引"
+                        type="number"
+                        value={String(localDraftTarget?.leverIndex ?? 0)}
+                        onChange={(e) =>
+                          setLocalDraftTarget({
+                            ...localDraftTarget,
+                            type: drawingTargetType,
+                            columnIndex: localDraftTarget?.columnIndex ?? 0,
+                            leverIndex: Number(e.currentTarget.value) || 0,
+                          })
+                        }
+                        min={0}
+                        styles={miniInputStyles}
+                      />
+                    )}
+                  </Group>
+                </>
               )}
 
               <Textarea

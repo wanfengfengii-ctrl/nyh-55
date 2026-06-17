@@ -76,9 +76,9 @@ export default function CollabSessionPanel() {
       setJoinError('请输入会话邀请码');
       return;
     }
-    const ok = joinSession(joinCode.trim().toUpperCase());
-    if (!ok) {
-      setJoinError('加入失败，请检查邀请码');
+    const result = joinSession(joinCode.trim().toUpperCase());
+    if (!result.success) {
+      setJoinError(result.error || '加入失败，请检查邀请码');
     } else {
       setJoinError(null);
     }

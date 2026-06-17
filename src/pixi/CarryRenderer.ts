@@ -9,6 +9,12 @@ const WARNING_RED = 0xC0392B;
 const LEVER_WIDTH = 36;
 const LEVER_HEIGHT = 5;
 
+export interface LeverTargetInfo {
+  type: 'lever';
+  columnIndex: number;
+  leverIndex: number;
+}
+
 interface CarryLeverVisuals {
   container: Container;
   body: Graphics;
@@ -25,9 +31,46 @@ interface CarryLeverVisuals {
 export class CarryRenderer {
   private levers: Map<string, CarryLeverVisuals> = new Map();
   private parent: Container;
+  private onLeverClick: ((info: LeverTargetInfo) => void) | null = null;
+  private interactive = false;
 
   constructor(parent: Container) {
     this.parent = parent;
+  }
+
+  setInteractive(interactive: boolean) {
+    this.interactive = interactive;
+    for (const visuals of this.levers.values()) {
+      visuals.container.eventMode = interactive ? 'static' : 'auto';
+      visuals.container.cursor = interactive ? 'pointer' : 'default';
+    }
+  }
+
+  setOnLeverClick(callback: (info: LeverTargetInfo) => void) {
+    this.onLeverClick = callback;
+  }
+
+  setAnnotationHighlight(column: number, leverIndex: number, highlight: boolean, color: number = COPPER_GREEN) {
+    const key = this.getLeverKey(column, leverIndex);
+    const visuals = this.levers.get(key);
+    if (!visuals) return;
+    if (highlight) {
+      visuals.tip.clear();
+      visuals.tip.circle(LEVER_WIDTH / 2, 0, 5);
+      visuals.tip.stroke({ color, width: 2 });
+    } else {
+      visuals.tip.clear();
+      visuals.tip.circle(LEVER_WIDTH / 2, 0, 2.5);
+      visuals.tip.fill({ color: COPPER_GREEN });
+    }
+  }
+
+  clearAllHighlights() {
+    for (const visuals of this.levers.values()) {
+      visuals.tip.clear();
+      visuals.tip.circle(LEVER_WIDTH / 2, 0, 2.5);
+      visuals.tip.fill({ color: COPPER_GREEN });
+    }
   }
 
   getLeverKey(column: number, wheelIndex: number): string {
@@ -74,6 +117,17 @@ export class CarryRenderer {
     const key = this.getLeverKey(column, wheelIndex);
     this.levers.set(key, visuals);
     this.parent.addChild(container);
+
+    if (this.interactive) {
+      container.eventMode = 'static';
+      container.cursor = 'pointer';
+    }
+
+    container.on('pointerdown', () => {
+      if (this.onLeverClick) {
+        this.onLeverClick({ type: 'lever', columnIndex: column, leverIndex: wheelIndex });
+      }
+    });
 
     return visuals;
   }
