@@ -373,6 +373,141 @@ export interface SessionStatusPayload {
   reason?: string;
 }
 
+export type FaultType = 'stuck_wheel' | 'misaligned_carry' | 'gear_desync' | 'rollback_failure';
+
+export interface MechanicalFault {
+  id: string;
+  type: FaultType;
+  columnIndex: number;
+  wheelIndex?: number;
+  leverIndex?: number;
+  fromColumn?: number;
+  toColumn?: number;
+  triggerStep: number;
+  description: string;
+  causeDescription: string;
+  symptomDescription: string;
+  expectedValue?: number;
+  actualValue?: number;
+  evidenceHints: string[];
+}
+
+export type FaultDifficulty = 'beginner' | 'intermediate' | 'advanced' | 'expert';
+
+export interface FaultScenario {
+  id: string;
+  title: string;
+  description: string;
+  difficulty: FaultDifficulty;
+  faults: MechanicalFault[];
+  engineConfig: EngineConfig;
+  correctDiagnoses: FaultDiagnosis[];
+  hintAnnotations: Annotation[];
+  timeLimitSeconds: number;
+  baseScore: number;
+}
+
+export interface FaultDiagnosis {
+  faultId: string;
+  faultType: FaultType;
+  columnIndex: number;
+  wheelIndex?: number;
+  leverIndex?: number;
+  stepNumber: number;
+  causeDescription: string;
+}
+
+export interface UserDiagnosisSubmission {
+  faultType: FaultType;
+  columnIndex: number;
+  wheelIndex?: number;
+  leverIndex?: number;
+  stepNumber: number;
+  causeDescription: string;
+}
+
+export interface DiagnosisEvaluation {
+  isCorrect: boolean;
+  partialCredit: number;
+  matchedFaultId: string | null;
+  explanation: string;
+  evidence: string[];
+  standardAnswer: FaultDiagnosis;
+  userAnswer: UserDiagnosisSubmission;
+}
+
+export interface FaultTrainingSession {
+  id: string;
+  scenarioId: string;
+  scenario: FaultScenario;
+  startTime: number;
+  endTime: number | null;
+  elapsedSeconds: number;
+  status: 'setup' | 'running' | 'diagnosing' | 'evaluated' | 'completed';
+  submissions: UserDiagnosisSubmission[];
+  evaluations: DiagnosisEvaluation[];
+  score: number;
+  maxScore: number;
+  currentStep: number;
+  faultInjectedSteps: number[];
+  userActions: FaultTrainingAction[];
+  faultyOperationLog: ComputationStep[];
+  correctOperationLog: ComputationStep[];
+  faultyEngineState: EngineState | null;
+  correctEngineState: EngineState | null;
+  revealedHints: number;
+  timerRunning: boolean;
+}
+
+export interface FaultTrainingAction {
+  timestamp: number;
+  actionType: 'step_forward' | 'step_back' | 'submit_diagnosis' | 'request_hint' | 'toggle_annotation' | 'pause_timer' | 'resume_timer';
+  data?: Record<string, unknown>;
+}
+
+export interface FaultTrainingRecord {
+  id: string;
+  scenarioId: string;
+  scenarioTitle: string;
+  difficulty: FaultDifficulty;
+  startTime: number;
+  endTime: number;
+  score: number;
+  maxScore: number;
+  accuracy: number;
+  elapsedSeconds: number;
+  submissionsCount: number;
+  correctCount: number;
+  partialCount: number;
+  hintCount: number;
+}
+
+export interface FaultTrainingHistory {
+  records: FaultTrainingRecord[];
+  totalScore: number;
+  totalSessions: number;
+  averageAccuracy: number;
+  bestScore: number;
+}
+
+export interface FaultScenarioStep {
+  stepNumber: number;
+  engineSnapshot: EngineState;
+  correctSnapshot: EngineState;
+  faultyOperationLog: ComputationStep[];
+  correctOperationLog: ComputationStep[];
+  activeFaults: MechanicalFault[];
+  annotations: Annotation[];
+  userAction?: FaultTrainingAction;
+}
+
+export interface FaultReplayFrame {
+  stepIndex: number;
+  step: FaultScenarioStep;
+  userAction: FaultTrainingAction | null;
+  elapsedAtStep: number;
+}
+
 export interface SessionInfoPayload {
   sessionId: string;
   sessionCode: string;

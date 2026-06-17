@@ -10,9 +10,14 @@ import CollaborationBridge from '@/components/CollaborationBridge';
 import CollabSessionPanel from '@/components/CollabSessionPanel';
 import AnnotationPanel from '@/components/AnnotationPanel';
 import CollabControlPanel, { ReplayPanel } from '@/components/CollabControlPanel';
+import FaultTrainingPanel from '@/components/FaultTrainingPanel';
+import FaultDiffTable from '@/components/FaultDiffTable';
+import { useFaultTrainingStore } from '@/store/faultTrainingStore';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<string | null>('manual');
+  const activeSession = useFaultTrainingStore((s) => s.activeSession);
+  const isTrainingMode = activeSession !== null;
 
   return (
     <div style={{ height: '100vh', background: '#1A1A2E', overflow: 'hidden', position: 'relative' }}>
@@ -23,9 +28,29 @@ export default function Home() {
         left: 0,
         right: 0,
         height: 3,
-        background: 'linear-gradient(90deg, #4A3728, #C8A951, #2E8B57, #C8A951, #4A3728)',
+        background: isTrainingMode
+          ? 'linear-gradient(90deg, #C0392B, #C8A951, #C0392B)'
+          : 'linear-gradient(90deg, #4A3728, #C8A951, #2E8B57, #C8A951, #4A3728)',
         zIndex: 10,
       }} />
+      {isTrainingMode && (
+        <div style={{
+          position: 'absolute',
+          top: 3,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(192,57,43,0.9)',
+          color: '#F5F0E1',
+          padding: '2px 16px',
+          borderRadius: '0 0 8 8',
+          fontSize: 11,
+          fontWeight: 600,
+          fontFamily: 'Source Sans 3, sans-serif',
+          zIndex: 10,
+        }}>
+          🔧 故障排查训练模式
+        </div>
+      )}
       <Grid gutter="md" style={{ height: '100%', padding: '10px 12px 12px 12px' }} columns={12}>
         <Grid.Col span={8}>
           <Stack gap="sm" style={{ height: '100%' }}>
@@ -34,7 +59,7 @@ export default function Home() {
               <ErrorOverlay />
             </div>
             <div style={{ maxHeight: 220, overflow: 'auto' }}>
-              <DiffTable />
+              {isTrainingMode ? <FaultDiffTable /> : <DiffTable />}
             </div>
           </Stack>
         </Grid.Col>
@@ -76,6 +101,9 @@ export default function Home() {
                 <Tabs.Tab value="collab" leftSection={<Text size="sm">🌐</Text>}>
                   协同讲解
                 </Tabs.Tab>
+                <Tabs.Tab value="fault" leftSection={<Text size="sm">🔧</Text>}>
+                  故障训练
+                </Tabs.Tab>
               </Tabs.List>
 
               <Tabs.Panel value="manual" style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, paddingTop: 8 }}>
@@ -100,6 +128,10 @@ export default function Home() {
                     <AnnotationPanel />
                   </div>
                 </Stack>
+              </Tabs.Panel>
+
+              <Tabs.Panel value="fault" style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, paddingTop: 8 }}>
+                <FaultTrainingPanel />
               </Tabs.Panel>
             </Tabs>
           </Stack>

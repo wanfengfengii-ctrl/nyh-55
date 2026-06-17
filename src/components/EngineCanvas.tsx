@@ -2,7 +2,8 @@ import { useRef, useEffect, useCallback } from 'react';
 import { EngineScene } from '@/pixi/EngineScene';
 import { useEngineStore } from '@/store/engineStore';
 import { useAnnotationStore } from '@/store/annotationStore';
-import type { AnnotationTarget } from '@/types';
+import { useFaultTrainingStore } from '@/store/faultTrainingStore';
+import type { AnnotationTarget, EngineState } from '@/types';
 
 export default function EngineCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -16,14 +17,24 @@ export default function EngineCanvas() {
   const prevCrankTurns = useRef<number>(-1);
   const continuousTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const faultTrainingSession = useFaultTrainingStore((s) => s.activeSession);
+  const showCorrectComparison = useFaultTrainingStore((s) => s.showCorrectComparison);
+
   const isDrawingMode = useAnnotationStore((s) => s.isDrawingMode);
-  const drawingTargetType = useAnnotationStore((s) => s.drawingTargetType);
   const localDraftTarget = useAnnotationStore((s) => s.localDraftTarget);
-  const setLocalDraftTarget = useAnnotationStore((s) => s.setLocalDraftTarget);
-  const setLocalDraftStep = useAnnotationStore((s) => s.setLocalDraftStep);
   const clearLocalDraft = useAnnotationStore((s) => s.clearLocalDraft);
   const selectedAnnotationId = useAnnotationStore((s) => s.selectedAnnotationId);
   const annotations = useAnnotationStore((s) => s.annotations);
+
+  const displayState: EngineState | null = (() => {
+    if (faultTrainingSession) {
+      if (showCorrectComparison && faultTrainingSession.correctEngineState) {
+        return faultTrainingSession.correctEngineState;
+      }
+      return faultTrainingSession.faultyEngineState;
+    }
+    return engineState;
+  })();
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -72,7 +83,10 @@ export default function EngineCanvas() {
         scene.destroy();
         return;
       }
-      const currentState = useEngineStore.getState().engineState;
+      const faultSession = useFaultTrainingStore.getState().activeSession;
+      const currentState = faultSession
+        ? (faultSession.faultyEngineState || useEngineStore.getState().engineState)
+        : useEngineStore.getState().engineState;
       if (currentState) {
         prevCrankTurns.current = currentState.crankTurns;
         scene.buildScene(currentState);
@@ -114,36 +128,36 @@ export default function EngineCanvas() {
 
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene || !scene.isReady || !engineState) return;
+    if (!scene || !scene.isReady || !displayState) return;
 
     if (!scene.isSceneBuilt) {
-      prevCrankTurns.current = engineState.crankTurns;
-      scene.buildScene(engineState);
+      prevCrankTurns.current = displayState.crankTurns;
+      scene.buildScene(displayState);
       return;
     }
 
-    if (engineState.crankTurns !== prevCrankTurns.current && !animationDetail) {
-      prevCrankTurns.current = engineState.crankTurns;
-      scene.buildScene(engineState);
+    if (displayState.crankTurns !== prevCrankTurns.current && !animationDetail) {
+      prevCrankTurns.current = displayState.crankTurns;
+      scene.buildScene(displayState);
     }
-  }, [engineState, animationDetail]);
+  }, [displayState, animationDetail]);
 
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene || !scene.isReady || !engineState || !animationDetail) return;
+    if (!scene || !scene.isReady || !displayState || !animationDetail) return;
 
     if (animationDetail.type !== 'reset') {
-      prevCrankTurns.current = engineState.crankTurns;
-      scene.updateAnimation(engineState, animationDetail);
+      prevCrankTurns.current = displayState.crankTurns;
+      scene.updateAnimation(displayState, animationDetail);
     }
-  }, [animationDetail, engineState]);
+  }, [animationDetail, displayState]);
 
   const handleResize = useCallback(() => {
     const scene = sceneRef.current;
-    if (scene && scene.isReady && engineState) {
-      scene.buildScene(engineState);
+    if (scene && scene.isReady && displayState) {
+      scene.buildScene(displayState);
     }
-  }, [engineState]);
+  }, [displayState]);
 
   useEffect(() => {
     window.addEventListener('resize', handleResize);
@@ -189,6 +203,24 @@ export default function EngineCanvas() {
           whiteSpace: 'nowrap',
         }}>
           ✏️ 圈选模式：点击画布上的数字轮/进位杆/齿轮来添加批注（按 Esc 退出）
+        </div>
+      )}
+      {faultTrainingSession && !isDrawingMode && (
+        <div style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          background: showCorrectComparison ? 'rgba(46,139,87,0.9)' : 'rgba(192,57,43,0.9)',
+          color: '#F5F0E1',
+          padding: '4px 10px',
+          borderRadius: 6,
+          fontSize: 11,
+          fontWeight: 600,
+          fontFamily: 'Source Sans 3, sans-serif',
+          pointerEvents: 'none',
+          zIndex: 10,
+        }}>
+          {showCorrectComparison ? '✓ 显示正确结果' : '⚠ 故障注入中'}
         </div>
       )}
     </div>
